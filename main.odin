@@ -48,7 +48,6 @@ main :: proc() {
 	vm_loop()
 }
 
-STACK_SIZE :: 255
 
 temp_register: struct #raw_union {
 	t:   uint,
@@ -56,14 +55,10 @@ temp_register: struct #raw_union {
 	t16: [4]u16,
 	t8:  [8]u8,
 }
-global_stack: [STACK_SIZE]u8
 
 code_len: uint
 code_register: [^]u8
 code_base: [^]u8
-
-stack_register: [^]u8
-stack_base: [^]u8
 
 // OP_CODES
 op_code :: enum u8 {
@@ -92,45 +87,51 @@ vm_loop :: proc() {
 
 		switch op_code_point {
 		case .NOP:
-			println("nop")
+			{println("nop")}
 
 		case .ADD:
-			println("add")
-			n1 := stack_pop()
-			println(n1)
-			n2 := stack_pop()
-			println(n2)
-			stack_push(n1 + n2)
+			{println("add")
+				// n1 := stack_pop()
+				// println(n1)
+				// n2 := stack_pop()
+				// println(n2)
+				// stack_push(n1 + n2)
+			}
+
 		case .SUB:
-			println("sub")
-			n1 := stack_pop()
-			println(n1)
-			n2 := stack_pop()
-			println(n2)
-			stack_push(n1 - n2)
+			{println("sub")
+				// n1 := stack_pop()
+				// println(n1)
+				// n2 := stack_pop()
+				// println(n2)
+				// stack_push(n1 - n2)
+			}
+
+		//  TODO: (1)(2)
 		case .POP:
-			println("pop")
-			temp_register.t = 0
-			temp_register.t8[3] = stack_pop()
+			{println("pop")
+				top := stack_pop()
+			}
 
 		case .PUSH:
-			code_advance()
-			println("push ", code_register[0])
-			stack_push(code_register[0])
+			{println("push")
+				// code_advance()
+			}
 
 		case .PUTCHAR:
-			fmt.printf("%c", stack_register[0])
+			{
+				// fmt.printf("%c", stack_register[0])
+			}
 
 		// case .DEREF_LOCAL:
-		// 	println("Dereferencing")
+		// 	{println("Dereferencing")
 		// 	val := stack_pop()
 		// 	assert(val < STACK_SIZE)
-		// 	stack_push(stack_base[val])
-		//
+		// 	stack_push(stack_base[val])}
 		// case .JMP_LOCAL:
-		// 	jump_loc := stack_pop()
+		// 	{jump_loc := stack_pop()
 		// 	code_register = cast(uint)jump_loc
-		// 	println("local jump to", jump_loc)
+		// 	println("local jump to", jump_loc)}
 
 
 		case .EXIT:
@@ -179,13 +180,29 @@ _code_retreat :: #force_inline proc() {code_register = &code_register[-1]}
 
 
 // @stack register manipulations
-stack_push :: #force_inline proc(data: u8, loc := #caller_location) {
-	assert_contextless(&stack_register[-STACK_SIZE] < stack_base, loc = loc)
+// INFO: stack is pointer alligned, each "cell" is exactly 8 bytes
+
+STACK_SIZE :: 255
+global_stack: [STACK_SIZE]uint
+
+stack_register: [^]uint
+stack_base: [^]uint
+stack_size: int = STACK_SIZE
+
+Stack_cell :: struct #raw_union {
+	sc:   uint,
+	sc32: [2]u32,
+	sc16: [4]u16,
+	sc8:  [8]u8,
+}
+
+stack_push :: #force_inline proc(data: uint, loc := #caller_location) {
+	assert_contextless(&stack_register[-stack_size] < stack_base, loc = loc)
 	stack_register = &stack_register[1]
 	stack_register[0] = data
 }
 
-stack_pop :: #force_inline proc(loc := #caller_location) -> u8 {
+stack_pop :: #force_inline proc(loc := #caller_location) -> uint {
 	assert_contextless(stack_register >= stack_base, loc = loc)
 	stack_register = &stack_register[-1]
 	return stack_register[1]

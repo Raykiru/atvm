@@ -37,15 +37,6 @@ main :: proc() {
 	code := [?]u8 {
 		// .start
 	0	= op(.INVALID),
-	1       = op(.PUSH_WORD),
-	2 ..< 9 = 0,
-	9       = 10,
-	10	= op(.NOP),
-	11	= op(.PUSH_WORD),
-	12..<19 = 0,
-	19	= 11,
-	20	= op(.ADD),
-	21	= op(.EXIT),
 	}
 	println(code)
 	// odinfmt: enable
@@ -100,7 +91,6 @@ vm_loop :: proc() {
 				// stack_push(n1 - n2)
 			}
 
-		//  TODO: (2)
 		case .POP_WORD:
 			{println("pop")
 				panic("TODO")

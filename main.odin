@@ -49,18 +49,19 @@ main :: proc() {
 }
 
 
-temp_register: struct #raw_union {
-	t:   uint,
-	t32: [2]u32,
-	t16: [4]u16,
-	t8:  [8]u8,
-}
+// TODO: (7)
+// temp_register: struct #raw_union {
+// 	t:   uint,
+// 	t32: [2]u32,
+// 	t16: [4]u16,
+// 	t8:  [8]u8,
+// }
 
-code_len: uint
-code_register: [^]u8
-code_base: [^]u8
 
-// OP_CODES
+// @op_codes
+// INFO: each code point is a u8, so hardcap of 255 code points
+// must avoid code_point specializations at all costs (such as PUSH_I32)
+
 op_code :: enum u8 {
 	//:: stackless, registerless op
 	INVALID = 0,
@@ -74,7 +75,7 @@ op_code :: enum u8 {
 	PUSH,
 	POP,
 
-	// TODO:
+	// TODO: (5)
 
 	// CALL,
 	// DEREF_LOCAL, //assumes index into stack_base
@@ -107,7 +108,7 @@ vm_loop :: proc() {
 				// stack_push(n1 - n2)
 			}
 
-		//  TODO: (1)(2)
+		//  TODO: (2)
 		case .POP:
 			{println("pop")
 				top := stack_pop()
@@ -148,6 +149,10 @@ vm_loop :: proc() {
 }
 
 // @code register manipulations
+code_len: uint
+code_register: [^]u8
+code_base: [^]u8
+
 code_push :: #force_inline proc(data: u8, loc := #caller_location) {
 	// INFO: in release mode, code_len == ~(0), no bounds checking should occur
 	assert_contextless(code_register < &code_base[code_len], loc = loc)

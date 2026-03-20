@@ -33,8 +33,7 @@ main :: proc() {
 
 	code := [?]u8 {
 		// .start
-		0 = u8(op_code.PUTCHAR),
-		1 = 
+		// TODO: write xddddd program
 	}
 	code_register = 0
 	code_base = raw_data(code[:])

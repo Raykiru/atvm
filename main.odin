@@ -35,7 +35,6 @@ main :: proc() {
 	// #code setup
 	code := [?]u8 {
 		// .start
-		// TODO: write xddddd program
 	}
 	code_base = raw_data(code[:])
 	code_register = code_base
@@ -44,7 +43,6 @@ main :: proc() {
 		// remove bounds checking code code array
 		code_len = ~uint(0)
 	}
-	// // TODO: figure out what size to make the each code point be
 
 	// #runtime
 	vm_loop()

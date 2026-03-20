@@ -33,9 +33,22 @@ main :: proc() {
 	stack_register = &stack_register[1]
 
 	// #code setup
+	// odinfmt: disable 
 	code := [?]u8 {
 		// .start
+	0	= op(.INVALID),
+	1       = op(.PUSH_WORD),
+	2 ..< 9 = 0,
+	9       = 10,
+	10	= op(.NOP),
+	11	= op(.PUSH_WORD),
+	12..<19 = 0,
+	19	= 11,
+	20	= op(.ADD),
+	21	= op(.EXIT),
 	}
+	println(code)
+	// odinfmt: enable
 	code_base = raw_data(code[:])
 	code_register = code_base
 
@@ -58,49 +71,28 @@ main :: proc() {
 // }
 
 
-// @op_codes
-// INFO: each code point is a u8, so hardcap of 255 code points
-// must avoid code_point specializations at all costs (such as PUSH_I32)
-
-op_code :: enum u8 {
-	//:: stackless, registerless op
-	INVALID = 0,
-	NOP = 1,
-	EXIT = 255,
-
-	//:: using stack, registerless op
-	ADD = 2,
-	SUB,
-	PUTCHAR, // read byte from top of stack and print it
-	PUSH,
-	POP,
-
-	// TODO: (5)
-
-	// CALL,
-	// DEREF_LOCAL, //assumes index into stack_base
-	// JMP_LOCAL, // assumes index into code_base
-}
-
 vm_loop :: proc() {
-	for iter in 0 ..< 10 {
-		op_code_point := cast(op_code)code_register[0]
+	for iter in 0 ..< 255 {
 
-		switch op_code_point {
+		// INFO: each code point is NOT responsible for advancing the op_code_point
+		code_advance()
+		assert(stack_register != stack_base)
+
+		println("current opcode:", cast(op_code)code_register[0])
+		switch cast(op_code)code_register[0] {
 		case .NOP:
 			{println("nop")}
 
 		case .ADD:
 			{println("add")
-				// n1 := stack_pop()
-				// println(n1)
-				// n2 := stack_pop()
-				// println(n2)
-				// stack_push(n1 + n2)
+				n1 := stack_pop()
+				n2 := stack_pop()
+				stack_push(n1 + n2)
 			}
 
 		case .SUB:
 			{println("sub")
+				panic("TODO")
 				// n1 := stack_pop()
 				// println(n1)
 				// n2 := stack_pop()
@@ -109,18 +101,25 @@ vm_loop :: proc() {
 			}
 
 		//  TODO: (2)
-		case .POP:
+		case .POP_WORD:
 			{println("pop")
-				top := stack_pop()
+				panic("TODO")
+				// top := stack_pop()
 			}
 
-		case .PUSH:
+		case .PUSH_WORD:
 			{println("push")
-				// code_advance()
+				res: Stack_cell
+				for i in 0 ..< 8 {
+					code_advance()
+					res.sc8[7 - i] = code_register[0]
+				}
+				stack_push(res.sc)
 			}
 
 		case .PUTCHAR:
-			{
+			{println("putchar")
+				panic("TODO")
 				// fmt.printf("%c", stack_register[0])
 			}
 
@@ -136,42 +135,78 @@ vm_loop :: proc() {
 
 
 		case .EXIT:
+			final := stack_pop()
+			println("Finished with", final)
 			return
 		case .INVALID:
 			panic("invalid memory")
 		case:
-			fmt.panicf("Unknown opcode %v, iter %v", op_code_point, iter)
+			fmt.panicf("Unknown opcode %v, iter %v", code_register[0], iter)
 		}
 
-		code_advance()
-		assert(stack_register != stack_base)
 	}
 }
+
+// @op_codes
+// INFO: each code point is a u8, so hardcap of 255 code points
+// must avoid code_point specializations at all costs (such as PUSH_I32)
+
+op_code :: enum u8 {
+	//:: stackless, registerless op
+	INVALID = 0,
+	NOP = 1,
+	EXIT = 255, // INFO: always returns the value on top of the stack
+
+	//:: using stack, registerless op
+	ADD = 2,
+	SUB,
+	PUTCHAR, // read byte from top of stack and print it
+	PUSH_WORD,
+	POP_WORD,
+
+	// TODO: (5)
+
+	// CALL,
+	// DEREF_LOCAL, //assumes index into stack_base
+	// JMP_LOCAL, // assumes index into code_base
+}
+
+op_uint :: #force_inline proc($num: uint) -> [8]u8 {
+	return cast(u8)num
+}
+
+op :: #force_inline proc($code: op_code) -> u8 {
+	return u8(code)
+}
+
 
 // @code register manipulations
 code_len: uint
 code_register: [^]u8
 code_base: [^]u8
 
-code_push :: #force_inline proc(data: u8, loc := #caller_location) {
-	// INFO: in release mode, code_len == ~(0), no bounds checking should occur
-	assert_contextless(code_register < &code_base[code_len], loc = loc)
-
-	_code_advance()
-	code_register[0] = data
-}
+// TODO: (8) figure out if I need code_push
+//
+// code_push :: #force_inline proc(data: u8, loc := #caller_location) {
+// 	// INFO: in release mode, code_len == ~(0), no bounds checking should occur
+//
+// 	assert_contextless(code_register < &code_base[code_len], loc = loc)
+//
+// 	_code_advance()
+// 	code_register[0] = data
+// }
 code_advance :: #force_inline proc(loc := #caller_location) {
 	assert_contextless(code_register < &code_base[code_len], loc = loc)
 
 	_code_advance()
 }
 
-code_pop :: #force_inline proc(loc := #caller_location) -> u8 {
-	assert_contextless(code_register > code_base, loc = loc)
-
-	_code_retreat()
-	return code_register[1]
-}
+// code_pop :: #force_inline proc(loc := #caller_location) -> u8 {
+// 	assert_contextless(code_register > code_base, loc = loc)
+//
+// 	_code_retreat()
+// 	return code_register[1]
+// }
 
 code_retreat :: #force_inline proc(loc := #caller_location) {
 	assert_contextless(code_register > code_base, loc = loc)

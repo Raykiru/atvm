@@ -1,5 +1,6 @@
 package main
 
+import "base:intrinsics"
 import "core:fmt"
 import "core:os"
 when ODIN_DEBUG {
@@ -13,6 +14,7 @@ when ODIN_DEBUG {
 IMPLEMENTED :: false
 
 main :: proc() {
+
 	when IMPLEMENTED {
 		if len(os.args) < 2 {panic("Expected a path")}
 		path := os.args[1]
@@ -33,21 +35,32 @@ main :: proc() {
 	stack_register = &stack_register[1]
 
 	// #code setup
-	// odinfmt: disable 
-	code := [?]u8 {
-		// .start
-	0	= op(.INVALID),
-	}
-	println(code)
-	// odinfmt: enable
+
+
+	code: [dynamic]u8
+	append_elems(
+		&code,
+		op(.INVALID),
+		expand_values(op_lit('x')),
+		op(.PUTCHAR),
+		expand_values(op_lit('d')),
+		op(.PUSH_WORD),
+		op(.PEEK_WORD),
+		op(.PUTCHAR),
+		op(.PEEK_WORD),
+		op(.PUTCHAR),
+		op(.PEEK_WORD),
+		op(.PUTCHAR),
+		op(.PEEK_WORD),
+		op(.PUTCHAR),
+		op(.POP_WORD),
+		op(.EXIT),
+	)
+
 	code_base = raw_data(code[:])
 	code_register = code_base
 
-	when ODIN_DEBUG {code_len = len(code)} else {
-		// remove bounds checking code code array
-		code_len = ~uint(0)
-	}
-
+	code_len = len(code)
 	// #runtime
 	vm_loop()
 }
@@ -67,7 +80,7 @@ vm_loop :: proc() {
 
 		// INFO: each code point is NOT responsible for advancing the op_code_point
 		code_advance()
-		assert(stack_register != stack_base)
+		if (stack_register == stack_base) do os.exit(1)
 
 		println("current opcode:", cast(op_code)code_register[0])
 		switch cast(op_code)code_register[0] {
@@ -76,9 +89,10 @@ vm_loop :: proc() {
 
 		case .ADD:
 			{println("add")
-				n1 := stack_pop()
-				n2 := stack_pop()
-				stack_push(n1 + n2)
+				panic("TODO")
+				// n1 := stack_pop()
+				// n2 := stack_pop()
+				// stack_push(n1 + n2)
 			}
 
 		case .SUB:
@@ -90,27 +104,54 @@ vm_loop :: proc() {
 				// println(n2)
 				// stack_push(n1 - n2)
 			}
-
-		case .POP_WORD:
-			{println("pop")
-				panic("TODO")
-				// top := stack_pop()
-			}
-
-		case .PUSH_WORD:
-			{println("push")
+		case .LIT_WORD:
+			{println("lit")
 				res: Stack_cell
 				for i in 0 ..< 8 {
 					code_advance()
 					res.sc8[7 - i] = code_register[0]
 				}
-				stack_push(res.sc)
+				append(&reg_array, res.sc)
+			}
+
+		case .PEEK_WORD:
+			{println("peek")
+				top := stack_register[0]
+				append(&reg_array, top)
+			}
+		case .POP_WORD:
+			{println("pop")
+				stack_pop :: #force_inline proc() -> uint {
+					assert_contextless(stack_register >= stack_base)
+					stack_register = &stack_register[-1]
+					return stack_register[1]
+				}
+
+				top := stack_pop()
+				append(&reg_array, top)
+			}
+
+		case .PUSH_WORD:
+			{println("push")
+				stack_push :: #force_inline proc(data: uint) {
+					assert_contextless(&stack_register[-stack_size] < stack_base)
+					stack_register = &stack_register[1]
+					stack_register[0] = data
+				}
+
+				res, ok := pop_safe(&reg_array)
+				if !ok do panic("tried to pop while no values in register array")
+
+				stack_push(res)
 			}
 
 		case .PUTCHAR:
 			{println("putchar")
-				panic("TODO")
-				// fmt.printf("%c", stack_register[0])
+				_top, ok := pop_safe(&reg_array)
+				if !ok do panic("putchar tried to pop from empty reg_array")
+				top := transmute(Stack_cell)_top
+				// print the lowest byte
+				fmt.printf("%c", top.sc8[0])
 			}
 
 		// case .DEREF_LOCAL:
@@ -125,8 +166,8 @@ vm_loop :: proc() {
 
 
 		case .EXIT:
-			final := stack_pop()
-			println("Finished with", final)
+			// final := stack_pop()
+			// println("Finished with", final)
 			return
 		case .INVALID:
 			panic("invalid memory")
@@ -142,17 +183,22 @@ vm_loop :: proc() {
 // must avoid code_point specializations at all costs (such as PUSH_I32)
 
 op_code :: enum u8 {
-	//:: stackless, registerless op
+	//::stack_less, register_less
 	INVALID = 0,
 	NOP = 1,
 	EXIT = 255, // INFO: always returns the value on top of the stack
 
-	//:: using stack, registerless op
+	//::function-like,
 	ADD = 2,
 	SUB,
 	PUTCHAR, // read byte from top of stack and print it
+	LIT_WORD, // pushes a literal to reg_array
+
+	//::the only things allowed to touch the stack
 	PUSH_WORD,
 	POP_WORD,
+	PEEK_WORD,
+
 
 	// TODO: (5)
 
@@ -161,12 +207,22 @@ op_code :: enum u8 {
 	// JMP_LOCAL, // assumes index into code_base
 }
 
-op_uint :: #force_inline proc($num: uint) -> [8]u8 {
-	return cast(u8)num
-}
 
 op :: #force_inline proc($code: op_code) -> u8 {
 	return u8(code)
+}
+
+op_lit :: proc($n: $T) -> [9]u8 where intrinsics.type_is_numeric(T) {
+	res: [9]u8
+	res[0] = op(.LIT_WORD)
+	nums := op_num(n)
+	for i in 1 ..< 9 {res[i] = nums[8 - i]}
+	println(res)
+	return res
+}
+
+op_num :: proc($n: $T) -> [8]u8 where intrinsics.type_is_numeric(T) {
+	return transmute([8]u8)cast(u64)n
 }
 
 
@@ -226,14 +282,5 @@ Stack_cell :: struct #raw_union {
 	sc8:  [8]u8,
 }
 
-stack_push :: #force_inline proc(data: uint, loc := #caller_location) {
-	assert_contextless(&stack_register[-stack_size] < stack_base, loc = loc)
-	stack_register = &stack_register[1]
-	stack_register[0] = data
-}
-
-stack_pop :: #force_inline proc(loc := #caller_location) -> uint {
-	assert_contextless(stack_register >= stack_base, loc = loc)
-	stack_register = &stack_register[-1]
-	return stack_register[1]
-}
+//@arguments register array manipulations
+reg_array: [dynamic]uint

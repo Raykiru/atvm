@@ -29,125 +29,142 @@ main :: proc() {
 	}
 
 	// #stack setup
-	stack_register = raw_data(global_stack[:])
-	stack_base = &global_stack[0]
+	interp: Interpretor
+
+
+	interp.stack_register = raw_data(global_stack[:])
+	interp.stack_base = &global_stack[0]
 	global_stack[0] = 7 // wtf
-	stack_register = &stack_register[1]
+	interp.stack_register = &interp.stack_register[1]
+	interp.stack_size = STACK_SIZE
 
 	// #code setup
 
 
 	code: [dynamic]u8
-	append_elems(
-		&code,
-		op(.INVALID),
-		expand_values(op_lit('x')),
-		op(.PUTCHAR),
-		expand_values(op_lit('d')),
-		op(.PUSH_WORD),
-		op(.PEEK_WORD),
-		op(.PUTCHAR),
-		op(.PEEK_WORD),
-		op(.PUTCHAR),
-		op(.PEEK_WORD),
-		op(.PUTCHAR),
-		op(.PEEK_WORD),
-		op(.PUTCHAR),
-		op(.POP_WORD),
-		op(.EXIT),
-	)
+	// TODO: ()
+	append_elems(&code, op(.INVALID), op(.EXIT))
 
-	code_base = raw_data(code[:])
-	code_register = code_base
+	interp.code_base = raw_data(code[:])
+	interp.code_register = interp.code_base
 
-	code_len = len(code)
+	interp.code_len = len(code)
 	// #runtime
-	vm_loop()
+	vm_loop(&interp)
 }
 
 
-// TODO: (7)
-// temp_register: struct #raw_union {
-// 	t:   uint,
-// 	t32: [2]u32,
-// 	t16: [4]u16,
-// 	t8:  [8]u8,
-// }
-
-
-vm_loop :: proc() {
+vm_loop :: proc(itp: ^Interpretor) {
 	for iter in 0 ..< 255 {
 
 		// INFO: each code point is NOT responsible for advancing the op_code_point
-		code_advance()
-		if (stack_register == stack_base) do os.exit(1)
+		code_advance(itp)
+		assert(itp.stack_register > itp.stack_base)
 
-		println("current opcode:", cast(op_code)code_register[0])
-		switch cast(op_code)code_register[0] {
+		println("current opcode:", cast(op_code)itp.code_register[0])
+		switch cast(op_code)itp.code_register[0] {
 		case .NOP:
 			{println("nop")}
 
 		case .ADD:
 			{println("add")
-				panic("TODO")
-				// n1 := stack_pop()
-				// n2 := stack_pop()
-				// stack_push(n1 + n2)
+				// INFO: takes 2 arguments from reg_array, adds them, clears the array
+				// and puts the result back
+				n1, n2: uint
+				ok: bool
+				n1, ok = pop_safe(&itp.reg_array)
+				if !ok do panic("not enough arguments for add")
+				n2, ok = pop_safe(&itp.reg_array)
+				if !ok do panic("not enough arguments for add")
+				append(&itp.reg_array, n1 + n2)
 			}
 
 		case .SUB:
 			{println("sub")
-				panic("TODO")
-				// n1 := stack_pop()
-				// println(n1)
-				// n2 := stack_pop()
-				// println(n2)
-				// stack_push(n1 - n2)
+				n1, n2: uint
+				ok: bool
+				n1, ok = pop_safe(&itp.reg_array)
+				if !ok do panic("not enough arguments for add")
+				n2, ok = pop_safe(&itp.reg_array)
+				if !ok do panic("not enough arguments for add")
+				append(&itp.reg_array, n1 - n2)
 			}
 		case .LIT_WORD:
 			{println("lit")
 				res: Stack_cell
 				for i in 0 ..< 8 {
-					code_advance()
-					res.sc8[7 - i] = code_register[0]
+					code_advance(itp)
+					res.sc8[7 - i] = itp.code_register[0]
 				}
-				append(&reg_array, res.sc)
+				append(&itp.reg_array, res.sc)
 			}
 
+		case .READ_WORD:
+			{println("read_word")
+				dest, ok := pop_safe(&itp.reg_array)
+				if !ok do panic("expected word at top of register array for write_read")
+
+				// INFO: be carefull with dest
+				fmt.assertf(dest > 0, "dest offset must not be less then 1")
+				fmt.assertf(
+					dest <= cast(uint)itp.stack_size,
+					"dest offset must not be greater then the stack size",
+				)
+				w := itp.stack_base[dest]
+
+				clear(&itp.reg_array)
+				append(&itp.reg_array, w)
+			}
 		case .PEEK_WORD:
 			{println("peek")
-				top := stack_register[0]
-				append(&reg_array, top)
+				top := itp.stack_register[0]
+				append(&itp.reg_array, top)
 			}
 		case .POP_WORD:
 			{println("pop")
-				stack_pop :: #force_inline proc() -> uint {
-					assert_contextless(stack_register >= stack_base)
-					stack_register = &stack_register[-1]
-					return stack_register[1]
+				stack_pop :: #force_inline proc(itp: ^Interpretor) -> uint {
+					assert_contextless(itp.stack_register >= itp.stack_base)
+					itp.stack_register = &itp.stack_register[-1]
+					return itp.stack_register[1]
 				}
 
-				top := stack_pop()
-				append(&reg_array, top)
+				top := stack_pop(itp)
+				append(&itp.reg_array, top)
+			}
+
+		case .WRITE_WORD:
+			{println("write_word")
+				w, ok := pop_safe(&itp.reg_array)
+				if !ok do panic("expected word at top of register array for write_read")
+				dest, ok2 := pop_safe(&itp.reg_array)
+				if !ok2 do panic("expected another word at top of register array for write_read")
+
+				// INFO: be carefull with dest
+				fmt.assertf(dest > 0, "dest offset must not be less then 1")
+				fmt.assertf(
+					dest <= cast(uint)itp.stack_size,
+					"dest offset must not be greater then the stack size",
+				)
+				itp.stack_base[dest] = w
 			}
 
 		case .PUSH_WORD:
 			{println("push")
-				stack_push :: #force_inline proc(data: uint) {
-					assert_contextless(&stack_register[-stack_size] < stack_base)
-					stack_register = &stack_register[1]
-					stack_register[0] = data
+				stack_push :: #force_inline proc(itp: ^Interpretor, data: uint) {
+					assert_contextless(&itp.stack_register[-itp.stack_size] < itp.stack_base)
+					itp.stack_register = &itp.stack_register[1]
+					itp.stack_register[0] = data
 				}
 
-				res, ok := pop_safe(&reg_array)
+				res, ok := pop_safe(&itp.reg_array)
 				if !ok do panic("tried to pop while no values in register array")
 
-				stack_push(res)
+				stack_push(itp, res)
 			}
 
 		case .PUTCHAR:
 			{println("putchar")
-				_top, ok := pop_safe(&reg_array)
+				_top, ok := pop_safe(&itp.reg_array)
 				if !ok do panic("putchar tried to pop from empty reg_array")
 				top := transmute(Stack_cell)_top
 				// print the lowest byte
@@ -172,7 +189,7 @@ vm_loop :: proc() {
 		case .INVALID:
 			panic("invalid memory")
 		case:
-			fmt.panicf("Unknown opcode %v, iter %v", code_register[0], iter)
+			fmt.panicf("Unknown opcode %v, iter %v", itp.code_register[0], iter)
 		}
 
 	}
@@ -195,9 +212,13 @@ op_code :: enum u8 {
 	LIT_WORD, // pushes a literal to reg_array
 
 	//::the only things allowed to touch the stack
+	// write
 	PUSH_WORD,
+	WRITE_WORD, // INFO: takes first word in reg_array and writes it to address second word
+	// read
 	POP_WORD,
 	PEEK_WORD,
+	READ_WORD,
 
 
 	// TODO: (5)
@@ -226,10 +247,23 @@ op_num :: proc($n: $T) -> [8]u8 where intrinsics.type_is_numeric(T) {
 }
 
 
+STACK_SIZE :: 255
+global_stack: [STACK_SIZE]uint
+//@interpretor
+Interpretor :: struct {
+	// code
+	code_len:       uint,
+	code_register:  [^]u8,
+	code_base:      [^]u8,
+	// stack
+	stack_register: [^]uint,
+	stack_base:     [^]uint,
+	stack_size:     int, // = STACK_SIZE
+	// register array
+	reg_array:      [dynamic]uint,
+}
+
 // @code register manipulations
-code_len: uint
-code_register: [^]u8
-code_base: [^]u8
 
 // TODO: (8) figure out if I need code_push
 //
@@ -241,10 +275,10 @@ code_base: [^]u8
 // 	_code_advance()
 // 	code_register[0] = data
 // }
-code_advance :: #force_inline proc(loc := #caller_location) {
-	assert_contextless(code_register < &code_base[code_len], loc = loc)
+code_advance :: #force_inline proc(itp: ^Interpretor, loc := #caller_location) {
+	assert_contextless(itp.code_register < &itp.code_base[itp.code_len], loc = loc)
 
-	_code_advance()
+	_code_advance(itp)
 }
 
 // code_pop :: #force_inline proc(loc := #caller_location) -> u8 {
@@ -254,26 +288,20 @@ code_advance :: #force_inline proc(loc := #caller_location) {
 // 	return code_register[1]
 // }
 
-code_retreat :: #force_inline proc(loc := #caller_location) {
-	assert_contextless(code_register > code_base, loc = loc)
+code_retreat :: #force_inline proc(itp: ^Interpretor, loc := #caller_location) {
+	assert_contextless(itp.code_register > itp.code_base, loc = loc)
 
-	_code_retreat()
+	_code_retreat(itp)
 }
 
 // @@code register internals
-_code_advance :: #force_inline proc() {code_register = &code_register[1]}
-_code_retreat :: #force_inline proc() {code_register = &code_register[-1]}
+_code_advance :: #force_inline proc(itp: ^Interpretor) {itp.code_register = &itp.code_register[1]}
+_code_retreat :: #force_inline proc(itp: ^Interpretor) {itp.code_register = &itp.code_register[-1]}
 
 
 // @stack register manipulations
 // INFO: stack is pointer alligned, each "cell" is exactly 8 bytes
 
-STACK_SIZE :: 255
-global_stack: [STACK_SIZE]uint
-
-stack_register: [^]uint
-stack_base: [^]uint
-stack_size: int = STACK_SIZE
 
 Stack_cell :: struct #raw_union {
 	sc:   uint,
@@ -283,4 +311,3 @@ Stack_cell :: struct #raw_union {
 }
 
 //@arguments register array manipulations
-reg_array: [dynamic]uint

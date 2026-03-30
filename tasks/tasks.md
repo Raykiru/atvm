@@ -1,5 +1,5 @@
 <!-- Sequencial todo's are dependant on the previous todo -->
-Tasks = 12
+Tasks = 16
 # (1) DONE: figure out how to arrange the stack
 # (3) DONE: figure out what size to make the each code point be
 # (2) DONE: figure out push and putting things from code onto the stack
@@ -11,6 +11,8 @@ Tasks = 12
 	// DEREF_LOCAL, //assumes index into stack_base
 	// JMP_LOCAL, // assumes index into code_base
 ```
+- (14) TODO: add boolean operations
+- (15) TODO: write a program with conditional execution
 
 
 - (6) TODO: create a todo plugin/system for vim
@@ -28,3 +30,9 @@ Tasks = 12
 - (12) TODO: make a simple assembler
 
 # (11) DONE: implement argument array 
+
+- (13) TODO: add read,write instructions
+
+# (16) DONE: encapsulate interpetor state
+
+

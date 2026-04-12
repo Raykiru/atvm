@@ -2,6 +2,7 @@ package main
 
 import "base:intrinsics"
 import "core:fmt"
+import "core:mem"
 import "core:os"
 when ODIN_DEBUG {
 	println :: fmt.println
@@ -42,8 +43,10 @@ main :: proc() {
 
 
 	code: [dynamic]u8
-	// TODO: ()
-	append_elems(&code, op(.INVALID), op(.EXIT))
+	// TODO:
+	append_elem(&code, op(.INVALID))
+	append_elem(&code, op(.TOP_ADDR))
+	append_elem(&code, op(.EXIT))
 
 	interp.code_base = raw_data(code[:])
 	interp.code_register = interp.code_base
@@ -99,20 +102,31 @@ vm_loop :: proc(itp: ^Interpretor) {
 				append(&itp.reg_array, res.sc)
 			}
 
-		case .READ_WORD:
-			{println("read_word")
+		case .TOP_ADDR:
+			{println("top_addr")
+				mem_offet := mem.ptr_sub(itp.stack_register, itp.stack_base)
+				fmt.assertf(
+					itp.stack_base[mem_offet:] == itp.stack_register,
+					"Stack pointer + mem_offset should point to the same thing as stack_register\n instead %v %v %v",
+					mem_offet,
+					itp.stack_base,
+					itp.code_base,
+				)
+				append_elem(&itp.reg_array, uint(mem_offet))
+			}
+		case .READ_LOCAL:
+			{println("read_local")
 				dest, ok := pop_safe(&itp.reg_array)
-				if !ok do panic("expected word at top of register array for write_read")
+				if !ok do panic("expected word at top of register array for read_local")
+				if len(itp.reg_array) > 0 do panic("expected only 1 argument for read_local")
 
 				// INFO: be carefull with dest
-				fmt.assertf(dest > 0, "dest offset must not be less then 1")
 				fmt.assertf(
 					dest <= cast(uint)itp.stack_size,
 					"dest offset must not be greater then the stack size",
 				)
 				w := itp.stack_base[dest]
 
-				clear(&itp.reg_array)
 				append(&itp.reg_array, w)
 			}
 		case .PEEK_WORD:
@@ -132,15 +146,15 @@ vm_loop :: proc(itp: ^Interpretor) {
 				append(&itp.reg_array, top)
 			}
 
-		case .WRITE_WORD:
-			{println("write_word")
+		case .WRITE_LOCAL:
+			{println("write_local")
 				w, ok := pop_safe(&itp.reg_array)
-				if !ok do panic("expected word at top of register array for write_read")
+				if !ok do panic("expected word at top of register array for write_local")
 				dest, ok2 := pop_safe(&itp.reg_array)
-				if !ok2 do panic("expected another word at top of register array for write_read")
+				if !ok2 do panic("expected another word(dest) at top of register array for write_local")
+				if len(itp.reg_array) > 0 do panic("expected exactly 2 arguments for write_local")
 
 				// INFO: be carefull with dest
-				fmt.assertf(dest > 0, "dest offset must not be less then 1")
 				fmt.assertf(
 					dest <= cast(uint)itp.stack_size,
 					"dest offset must not be greater then the stack size",
@@ -213,12 +227,13 @@ op_code :: enum u8 {
 
 	//::the only things allowed to touch the stack
 	// write
+	WRITE_LOCAL, // INFO: takes first word in reg_array and writes it to address second word
 	PUSH_WORD,
-	WRITE_WORD, // INFO: takes first word in reg_array and writes it to address second word
+	TOP_ADDR,
 	// read
+	READ_LOCAL,
 	POP_WORD,
 	PEEK_WORD,
-	READ_WORD,
 
 
 	// TODO: (5)

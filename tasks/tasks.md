@@ -31,7 +31,8 @@ Tasks = 16
 
 # (11) DONE: implement argument array 
 
-- (13) TODO: add read,write instructions
+# (13) DONE: add read,write instructions
+- (17) TODO: add read and write for any pointer, not just offesets
 
 # (16) DONE: encapsulate interpetor state
 

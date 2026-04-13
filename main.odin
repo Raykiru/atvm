@@ -1,9 +1,13 @@
 package main
 
 import "base:intrinsics"
+import "base:runtime"
 import "core:fmt"
 import "core:mem"
 import "core:os"
+import "core:reflect"
+import "core:strconv"
+import "core:strings"
 when ODIN_DEBUG {
 	println :: fmt.println
 	printf :: fmt.printfln
@@ -29,42 +33,173 @@ main :: proc() {
 		// fmt.println(cast(string)data)
 	}
 
-	// #stack setup
-	interp: Interpretor
-
-
-	interp.stack_register = raw_data(global_stack[:])
-	interp.stack_base = &global_stack[0]
-	global_stack[0] = 7 + 7 << 4
-	interp.stack_register = &interp.stack_register[1]
-	interp.stack_size = STACK_SIZE
 
 	// #code setup
 
 
-	code: [dynamic]u8
-	// TODO:
-	append_elem(&code, op(.INVALID))
-	append_elems(&code, op(.TOP_ADDR))
-	num := op_lit(1); append_elems(&code, ..num[:])
-	append_elem(&code, op(.EXIT))
+	// TODO: finish this code example or redo the damn vm
+	code: [dynamic]u8 = parse(
+		`
+	lit_word 0x58
+	putchar
 
-	interp.code_base = raw_data(code[:])
-	interp.code_register = interp.code_base
+	lit_word 0x4
+	push_word
 
-	interp.code_len = len(code)
+	lit_word 0x44
+	push_word
+loop:
+	flush
+
+	// print the char
+	peek_word
+	putchar
+
+	// load the addr of counter
+	lit_word 0x2
+	read_local
+
+	// save it
+	push_word
+
+	// sub the counter with 1
+	lit_word 0x1
+	pop_word
+	sub
+
+	// save the res
+	push_word
+
+	
+	write_local
+
+	lit_word 0x2
+	read_local
+	lit_word @loop
+
+	jnz
+
+	exit
+	`,
+	)
+
+	// append_elem(&code, op(.INVALID))
+	// append_elems(&code, op(.TOP_ADDR))
+	// num := op_lit(1); append_elems(&code, ..num[:])
+	// append_elem(&code, op(.EXIT))
+
+	// #stack setup
+	interp: Interpretor; {
+		interp.stack_register = raw_data(global_stack[:])
+		interp.stack_base = &global_stack[0]
+		interp.stack_register = interp.stack_register[1:]
+		interp.stack_size = STACK_SIZE
+
+		interp.code_base = raw_data(code[:])
+		interp.code_register = interp.code_base
+		interp.code_len = len(code)
+	}
 	// #runtime
 	vm_loop(&interp)
 }
 
 // @assembler
-ASSEM_STUFF :: true
-when ASSEM_STUFF {
+ASSEM_STUFF :: true; when ASSEM_STUFF {
+	parse :: proc(file: string) -> (out: [dynamic]u8) {
+		append(&out, op(.INVALID))
+		labels: map[string]int
+		names_arr := reflect.enum_field_names(op_code)
+		codes_arr := reflect.enum_field_values(op_code)
+		n_map: map[string]u8
+		for name, i in names_arr {
+			println(strings.to_lower(name), codes_arr[i])
+			n_map[strings.to_lower(name)] = auto_cast codes_arr[i]
+		}
+
+		src := file
+		i := 0
+		outer: for line in strings.split_lines_iterator(&src) {
+			switch parts := strings.split(line, " "); strings.trim_space(parts[0]) {
+			// simple cases
+			// case "add":
+			// 	append(&out, op(.ADD))
+			// case "putchar":
+			// 	append(&out, op(.PUTCHAR))
+			// case "push":
+			// 	append(&out, op(.PUSH_WORD))
+			// case "peek":
+			// 	append(&out, op(.PEEK_WORD))
+			// case "pop":
+			// 	append(&out, op(.POP_WORD))
+			// case "exit":
+			// 	append(&out, op(.EXIT))
+
+			// with arguments:
+			case "lit_word":
+				append(&out, op(.LIT_WORD))
+				if len(parts) > 1 {
+					num, ok := strconv.parse_uint(parts[1])
+					// use the number
+					if ok {
+						segments := op_num(num)
+						append_elems(&out, ..segments[:])
+					} else {
+						// compute the address probably
+						if parts[1][0] == '@' {
+							dest := parts[1][1:]
+							label_offs := labels[dest]
+							println("added label to reg array", label_offs, dest)
+							segments := op_num(label_offs)
+							append_elems(&out, ..segments[:])
+						} else {
+							fmt.panicf("Neither a number nor a label: %v %v", parts[1], parts)
+						}
+					}
+					i += 8 // account for the 8 bytes added
+
+					// any remaining parts will be ignored as comment
+					println("remaining parts:", parts[2:])
+				} else {
+					println("remaining parts:", parts[1:])
+				}
+
+			case "": // empty lines are ok
+			case:
+				// simple cases
+				op_string := strings.trim_space(parts[0])
+
+				//	// comments
+				if op_string[:2] == "//" {
+					continue outer
+				}
+				//	// solo op_codes
+				if len(parts) == 1 do if op_string in n_map {
+					append_elem(&out, n_map[op_string])
+					continue outer
+				}
+
+
+				// special cases
+				/* parse labels*/
+				cases: {
+					if label_parts := strings.split(parts[0], ":"); len(label_parts) > 1 {
+						label := strings.trim_space(label_parts[0])
+						labels[label] = i + 1
+						continue outer
+					}
+					fmt.panicf("implement '%v' from '%v'", op_string, parts)
+				}
+			}
+
+			i += 1
+		}
+
+		return
+	}
 }
 
 // @vm stuff
-VM_STUFF :: true
-when VM_STUFF {
+VM_STUFF :: true; when VM_STUFF {
 	vm_loop :: proc(itp: ^Interpretor) {
 		for iter in 0 ..< 255 {
 
@@ -76,6 +211,10 @@ when VM_STUFF {
 			switch cast(op_code)itp.code_register[0] {
 			case .NOP:
 				{println("nop")}
+			case .FLUSH:
+				{println("flush")
+					clear_dynamic_array(&itp.reg_array)
+				}
 
 			case .ADD:
 				{println("add")
@@ -84,10 +223,13 @@ when VM_STUFF {
 					n1, n2: uint
 					ok: bool
 					n1, ok = pop_safe(&itp.reg_array)
+					println("n1:", n1)
 					if !ok do panic("not enough arguments for add")
 					n2, ok = pop_safe(&itp.reg_array)
+					println("n2:", n2)
 					if !ok do panic("not enough arguments for add")
 					append(&itp.reg_array, n1 + n2)
+					println(itp.reg_array)
 				}
 
 			case .SUB:
@@ -95,9 +237,10 @@ when VM_STUFF {
 					n1, n2: uint
 					ok: bool
 					n1, ok = pop_safe(&itp.reg_array)
-					if !ok do panic("not enough arguments for add")
+					if !ok do panic("not enough arguments for sub")
 					n2, ok = pop_safe(&itp.reg_array)
-					if !ok do panic("not enough arguments for add")
+					if !ok do panic("not enough arguments for sub")
+					printf("%v - %v = %v", n1, n2, n1 - n2)
 					append(&itp.reg_array, n1 - n2)
 				}
 			case .LIT_WORD:
@@ -105,11 +248,26 @@ when VM_STUFF {
 					res: Stack_cell
 					for i in 0 ..< 8 {
 						code_advance(itp)
-						res.sc8[7 - i] = itp.code_register[0]
+						res.sc8[i] = itp.code_register[0]
 					}
 					append(&itp.reg_array, res.sc)
+					printf("appended %v to reg_array", res.sc8)
 				}
 
+			case .JNZ:
+				{println("jnz")
+					println(itp.reg_array)
+					dest, ok := pop_safe(&itp.reg_array)
+					if !ok do panic("not enough arguments for jnz")
+
+					cond, ok2 := pop_safe(&itp.reg_array)
+					if !ok2 do panic("not enough arguments for jnz")
+
+					if cond != 0 {
+						println("jumping to", dest)
+						itp.code_register = itp.code_base[dest:]
+					}
+				}
 			case .TOP_ADDR:
 				{println("top_addr")
 					mem_offset := mem.ptr_sub(itp.stack_register, itp.stack_base)
@@ -132,9 +290,11 @@ when VM_STUFF {
 					// INFO: be carefull with dest
 					fmt.assertf(
 						dest <= cast(uint)itp.stack_size,
-						"dest offset must not be greater then the stack size",
+						"dest offset must not be greater then the stack size\n %b",
+						dest,
 					)
 					w := itp.stack_base[dest]
+					println("read", w, "from", dest)
 
 					append(&itp.reg_array, w)
 				}
@@ -175,7 +335,7 @@ when VM_STUFF {
 				{println("push")
 					stack_push :: #force_inline proc(itp: ^Interpretor, data: uint) {
 						assert_contextless(&itp.stack_register[-itp.stack_size] < itp.stack_base)
-						itp.stack_register = &itp.stack_register[1]
+						itp.stack_register = itp.stack_register[1:]
 						itp.stack_register[0] = data
 					}
 
@@ -191,6 +351,8 @@ when VM_STUFF {
 					if !ok do panic("putchar tried to pop from empty reg_array")
 					top := transmute(Stack_cell)_top
 					// print the lowest byte
+					println(top.sc8)
+					// numbers in reg_array are little endian
 					fmt.printf("%c", top.sc8[0])
 				}
 
@@ -216,6 +378,7 @@ when VM_STUFF {
 			}
 
 		}
+		panic("You've hit the vm loop limit")
 	}
 
 	// @op_codes
@@ -232,7 +395,9 @@ when VM_STUFF {
 		ADD = 2,
 		SUB,
 		PUTCHAR, // read byte from top of stack and print it
-		LIT_WORD, // pushes a literal to reg_array
+		LIT_WORD, // pushes a constant literal to reg_array
+		FLUSH, // empties the register array
+		JNZ,
 
 		//::the only things allowed to touch the stack
 		// write
@@ -257,17 +422,22 @@ when VM_STUFF {
 		return u8(code)
 	}
 
-	op_lit :: proc($n: $T) -> [9]u8 where intrinsics.type_is_numeric(T) {
+	op_lit :: #force_inline proc(n: $T) -> [9]u8 where intrinsics.type_is_numeric(T) {
 		res: [9]u8
 		res[0] = op(.LIT_WORD)
 		nums := op_num(n)
-		for i in 1 ..< 9 {res[i] = nums[8 - i]}
+		for num in nums {
+			res[i + 1] = num
+		}
 		println(res)
 		return res
 	}
 
-	op_num :: proc($n: $T) -> [8]u8 where intrinsics.type_is_numeric(T) {
-		return transmute([8]u8)cast(u64)n
+	op_num :: #force_inline proc(n: $T) -> (res: [8]u8) where intrinsics.type_is_numeric(T) {
+		temp: [8]u8 = transmute([8]u8)cast(u64)n
+		res = temp
+		println(res)
+		return
 	}
 
 
@@ -285,7 +455,8 @@ when VM_STUFF {
 		stack_base:     [^]uint,
 		stack_size:     int, // = STACK_SIZE
 		// register array
-		reg_array:      [dynamic]uint,
+		// TODO: fix all the places this is used
+		// reg_array:      [dynamic]uint,
 	}
 
 	// @code register manipulations

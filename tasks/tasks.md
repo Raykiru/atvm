@@ -21,7 +21,8 @@ Tasks = 16
 	- INFO ```	instead of temp register, temp register array. it's used for getting data from
 				stack to other functions or function-like intructions ```
 
-- (8) TODO: figure out if I need code_push
+# (8) DONE: figure out if I need code_push
+	- INFO: I don't need it for now
 
 # (9) DONE: figure out what pop should do, and why
 	- INFO ```pop takes the top item of the stack and puts in register array ```
@@ -35,5 +36,4 @@ Tasks = 16
 - (17) TODO: add read and write for any pointer, not just offesets
 
 # (16) DONE: encapsulate interpetor state
-
 
